@@ -1,0 +1,359 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#05070b">
+  <title>CP Mining</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg:#05070b; --panel:#10171d; --green:#38f5b0;
+      --muted:#91a29f; --border:#23352f; --blue:#54baff;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; background:var(--bg); color:#fff;
+      font-family:Arial,Helvetica,sans-serif;
+      padding:16px 15px 92px; min-height:100vh;
+    }
+    button { font:inherit; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .wrap { max-width:520px; margin:auto; }
+    .header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:5px 0 22px; }
+    .brand { display:flex; align-items:center; gap:11px; }
+    .logo {
+      width:48px;height:48px;border-radius:15px;
+      display:grid;place-items:center;background:#102b23;
+      border:1px solid #225b46;color:var(--green);font-size:25px;
+    }
+    h1 { font-size:20px; margin:0 0 4px; letter-spacing:1px; }
+    .subtitle { color:var(--green);font-size:10px;letter-spacing:2px; }
+    .icon-btn { background:var(--panel);border:1px solid var(--border);color:white;border-radius:12px;padding:11px; }
+    .card { background:linear-gradient(145deg,#111b20,#0b1015);border:1px solid var(--border);border-radius:21px;padding:19px;margin-bottom:14px; }
+    .label { color:var(--muted);font-size:12px;letter-spacing:1px; }
+    .balance { font-size:35px;font-weight:800;color:var(--green);margin:10px 0 5px;overflow-wrap:anywhere; }
+    .unit { font-size:14px;color:#b5c5c0; }
+    .pill { display:inline-flex;align-items:center;gap:6px;background:#10271f;color:var(--green);padding:7px 10px;border-radius:20px;font-size:11px; }
+    .dot { width:7px;height:7px;border-radius:50%;background:var(--green); }
+    .mining { text-align:center;padding:23px 18px; }
+    .mine-circle {
+      width:142px;height:142px;border-radius:50%;margin:20px auto;
+      border:3px solid var(--green);display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      background:radial-gradient(circle,#17392d,#0b1514 70%);
+      box-shadow:0 0 32px #38f5b01c;
+    }
+    .pick { font-size:38px; }
+    .mine-title { font-size:16px;font-weight:bold;margin-top:5px; }
+    .timer { color:var(--green);font-size:14px;margin:12px 0 18px;font-variant-numeric:tabular-nums; }
+    .progress-head { display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:9px; }
+    .track { height:8px;border-radius:20px;background:#24302e;overflow:hidden; }
+    .fill { width:0;height:100%;background:linear-gradient(90deg,#20bf83,var(--green));border-radius:20px;transition:width .5s; }
+    .primary { width:100%;padding:15px;border:0;border-radius:14px;background:var(--green);color:#03120c;font-weight:800;margin-top:20px; }
+    .secondary { border:1px solid var(--border);background:#14201e;color:var(--green);border-radius:12px;padding:12px;width:100%;font-weight:bold; }
+    .section-title { font-size:15px;font-weight:bold;margin:22px 2px 12px; }
+    .grid { display:grid;grid-template-columns:1fr 1fr;gap:11px; }
+    .tile { text-align:left;min-height:112px;background:var(--panel);border:1px solid var(--border);border-radius:17px;padding:15px;color:white; }
+    .tile-icon { font-size:23px;margin-bottom:12px; }
+    .tile-title { font-weight:bold;font-size:14px; }
+    .tile-sub { color:var(--muted);font-size:11px;margin-top:6px;line-height:1.4; }
+    .notice { border-color:#284c5a;background:#101a22; }
+    .notice h3 { margin:8px 0;font-size:15px; }
+    .notice p { margin:0;color:#b5c4ce;font-size:13px;line-height:1.5;white-space:pre-wrap; }
+    .small { color:var(--muted);font-size:11px;line-height:1.5; }
+    .bottom {
+      position:fixed;bottom:0;left:0;right:0;z-index:5;
+      background:#090d12f5;border-top:1px solid #202b32;
+      display:flex;justify-content:center;padding:9px 7px calc(9px + env(safe-area-inset-bottom));
+    }
+    .nav { display:flex;justify-content:space-around;width:100%;max-width:520px;gap:4px; }
+    .nav button { background:transparent;border:0;color:#899994;font-size:10px;padding:7px 10px;min-width:65px; }
+    .nav button span { display:block;font-size:20px;margin-bottom:4px; }
+    .nav button.active { color:var(--green); }
+    .status { font-size:12px;color:var(--muted);margin:10px 0;white-space:pre-wrap; }
+    .hidden { display:none!important; }
+    .row { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+    .ref-link { font-size:12px;overflow-wrap:anywhere;color:#b9e9d8;line-height:1.5;margin:12px 0; }
+    .notice-close { float:right;background:none;border:0;color:#b5c4ce;font-size:18px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="header">
+    <div class="brand">
+      <div class="logo">⛏</div>
+      <div><h1 id="appName">CP MINING</h1><div class="subtitle">MINE · EARN · GROW</div></div>
+    </div>
+    <button class="icon-btn" id="refreshBtn" aria-label="Refresh">↻</button>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <div class="label">TOTAL CP BALANCE</div>
+      <span class="pill"><span class="dot"></span><span id="accountState">CONNECTING</span></span>
+    </div>
+    <div class="balance" id="balance">0.0000 <span class="unit">CP</span></div>
+    <div class="small">Your CP balance is synced with the server.</div>
+  </section>
+
+  <section class="card mining">
+    <div class="label">YOUR MINING SESSION</div>
+    <div class="mine-circle">
+      <div class="pick">⛏️</div>
+      <div class="mine-title" id="mineState">NOT MINING</div>
+      <div class="small" id="rateText">Daily rate: — CP</div>
+    </div>
+    <div class="timer" id="timer">24:00:00 remaining</div>
+    <div class="progress-head"><span>24-hour progress</span><span id="progressText">0%</span></div>
+    <div class="track"><div class="fill" id="progressFill"></div></div>
+    <button class="primary" id="mineBtn">START MINING</button>
+    <div class="status" id="mineMessage"></div>
+  </section>
+
+  <section id="noticeSection" class="card notice hidden">
+    <button class="notice-close" id="closeNotice" aria-label="Close notice">×</button>
+    <div class="label">📢 NOTICE</div>
+    <h3 id="noticeTitle"></h3>
+    <p id="noticeMessage"></p>
+  </section>
+
+  <div class="section-title">Earn More CP</div>
+  <div class="grid">
+    <button class="tile" id="adsTile">
+      <div class="tile-icon">▶️</div>
+      <div class="tile-title">Watch Ads</div>
+      <div class="tile-sub">Watch supported ads to earn CP</div>
+    </button>
+    <button class="tile" id="refTile">
+      <div class="tile-icon">👥</div>
+      <div class="tile-title">Invite Friends</div>
+      <div class="tile-sub">Earn CP per eligible referral</div>
+    </button>
+    <button class="tile" id="mailTile">
+      <div class="tile-icon">✉️</div>
+      <div class="tile-title">Mail & Notices</div>
+      <div class="tile-sub">Read updates from the admin</div>
+    </button>
+    <button class="tile" id="walletTile">
+      <div class="tile-icon">💎</div>
+      <div class="tile-title">My Wallet</div>
+      <div class="tile-sub">Balance and mining details</div>
+    </button>
+  </div>
+
+  <section class="card hidden" id="refPanel" style="margin-top:14px">
+    <div class="row"><strong>Invite Friends</strong><span class="pill">Referral</span></div>
+    <div class="small" style="margin-top:10px">Successful referrals: <strong id="refCount">0</strong></div>
+    <div class="ref-link" id="refLink">Loading referral link…</div>
+    <button class="secondary" id="copyRef">COPY REFERRAL LINK</button>
+    <button class="secondary" id="shareRef" style="margin-top:8px">SHARE WITH FRIENDS</button>
+  </section>
+
+  <section class="card hidden" id="mailPanel" style="margin-top:14px">
+    <strong>Mail & Notices</strong>
+    <p class="small" id="mailContent" style="white-space:pre-wrap">No new messages.</p>
+  </section>
+
+  <section class="card hidden" id="walletPanel" style="margin-top:14px">
+    <strong>My Wallet</strong>
+    <p class="small">Available balance</p>
+    <div class="balance" id="walletBalance">0 CP</div>
+    <p class="small" id="walletMining">Mining details will appear here.</p>
+  </section>
+
+  <div class="status" id="globalMessage" role="status"></div>
+</div>
+
+<nav class="bottom">
+  <div class="nav">
+    <button class="active" data-panel="home"><span>⌂</span>Home</button>
+    <button data-panel="mining"><span>⛏</span>Mining</button>
+    <button data-panel="referral"><span>♧</span>Referral</button>
+    <button data-panel="mail"><span>✉</span>Mail</button>
+    <button data-panel="wallet"><span>◇</span>Wallet</button>
+  </div>
+</nav>
+
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+  }
+
+  const $ = id => document.getElementById(id);
+  const initData = tg ? tg.initData : "";
+  let settings = {};
+  let me = null;
+  let timerInterval = null;
+
+  function api(path, options = {}) {
+    return fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        "x-telegram-init-data": initData,
+        ...(options.headers || {})
+      }
+    }).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    });
+  }
+
+  function message(text, global = false) {
+    $(global ? "globalMessage" : "mineMessage").textContent = text || "";
+  }
+
+  function showPanel(panel) {
+    $("refPanel").classList.toggle("hidden", panel !== "referral");
+    $("mailPanel").classList.toggle("hidden", panel !== "mail");
+    $("walletPanel").classList.toggle("hidden", panel !== "wallet");
+    document.querySelectorAll(".nav button").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.panel === panel);
+    });
+    if (panel === "mining") $("mineBtn").scrollIntoView({behavior:"smooth", block:"center"});
+    else if (panel !== "home") {
+      const id = panel === "referral" ? "refPanel" : panel === "mail" ? "mailPanel" : "walletPanel";
+      $(id).scrollIntoView({behavior:"smooth", block:"center"});
+    } else window.scrollTo({top:0, behavior:"smooth"});
+  }
+
+  function render() {
+    if (!me) return;
+    const balance = Number(me.balance || 0);
+    $("balance").innerHTML = `${balance.toLocaleString(undefined,{maximumFractionDigits:4})} <span class="unit">CP</span>`;
+    $("walletBalance").textContent = `${balance.toLocaleString(undefined,{maximumFractionDigits:4})} CP`;
+    $("refCount").textContent = Number(me.referralCount || 0);
+    $("refLink").textContent = me.referralLink || "Referral link unavailable";
+    $("rateText").textContent = `Daily rate: ${Number(settings.dailyMiningCP || 0)} CP`;
+    $("accountState").textContent = "CONNECTED";
+
+    const mining = me.mining || {};
+    const active = Boolean(mining.active);
+    $("mineState").textContent = active ? "MINING ACTIVE" : "NOT MINING";
+    $("mineBtn").disabled = active || settings.miningEnabled === false;
+    $("mineBtn").textContent = active ? "MINING IN PROGRESS" :
+      settings.miningEnabled === false ? "MINING DISABLED" : "START MINING";
+
+    $("walletMining").textContent = active
+      ? `Started: ${new Date(mining.startedAt).toLocaleString()}`
+      : "No active mining session.";
+
+    if (!active) {
+      $("timer").textContent = "24:00:00 remaining";
+      $("progressText").textContent = "0%";
+      $("progressFill").style.width = "0%";
+      clearInterval(timerInterval);
+      return;
+    }
+
+    clearInterval(timerInterval);
+    const startedAt = Number(mining.startedAt);
+    const endsAt = startedAt + 86400000;
+
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, endsAt - now);
+      const elapsed = Math.min(86400000, Math.max(0, now - startedAt));
+      const pct = elapsed / 86400000 * 100;
+      const hh = String(Math.floor(remaining / 3600000)).padStart(2,"0");
+      const mm = String(Math.floor((remaining % 3600000) / 60000)).padStart(2,"0");
+      const ss = String(Math.floor((remaining % 60000) / 1000)).padStart(2,"0");
+      $("timer").textContent = remaining ? `${hh}:${mm}:${ss} remaining` : "Syncing completed session…";
+      $("progressText").textContent = `${pct.toFixed(1)}%`;
+      $("progressFill").style.width = `${pct}%`;
+      if (!remaining) loadData();
+    };
+    tick();
+    timerInterval = setInterval(tick, 1000);
+  }
+
+  async function loadData() {
+    if (!initData) {
+      $("accountState").textContent = "OPEN IN TELEGRAM";
+      message("Please open this Mini App using your Telegram bot.", true);
+      return;
+    }
+
+    try {
+      const data = await api("/api/bootstrap");
+      settings = data;
+      $("appName").textContent = String(data.appName || "CP Mining").toUpperCase();
+      $("rateText").textContent = `Daily rate: ${Number(data.dailyMiningCP || 0)} CP`;
+
+      const n = data.notice;
+      if (n && n.message && (!n.expiresAt || Date.now() <= Number(n.expiresAt))) {
+        $("noticeTitle").textContent = n.title || "Notice";
+        $("noticeMessage").textContent = n.message;
+        $("noticeSection").classList.remove("hidden");
+      } else {
+        $("noticeSection").classList.add("hidden");
+      }
+
+      me = await api("/api/me");
+      render();
+      message("");
+    } catch (err) {
+      $("accountState").textContent = "ERROR";
+      message(err.message, true);
+    }
+  }
+
+  $("mineBtn").addEventListener("click", async () => {
+    $("mineBtn").disabled = true;
+    message("Starting mining…");
+    try {
+      await api("/api/mining/start", {method:"POST", body:"{}"});
+      await loadData();
+      message("Mining started successfully!");
+    } catch (err) {
+      message(err.message);
+      await loadData();
+    }
+  });
+
+  $("refreshBtn").addEventListener("click", loadData);
+  $("closeNotice").addEventListener("click", () => $("noticeSection").classList.add("hidden"));
+
+  $("adsTile").addEventListener("click", async () => {
+    if (!settings.adsEnabled) return message("Ads are currently disabled.", true);
+    message("Ad rewards are not available until Monetag reward verification is configured.", true);
+  });
+
+  $("refTile").addEventListener("click", () => showPanel("referral"));
+  $("mailTile").addEventListener("click", () => showPanel("mail"));
+  $("walletTile").addEventListener("click", () => showPanel("wallet"));
+  $("copyRef").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(me.referralLink);
+      message("Referral link copied!", true);
+    } catch {
+      message("Copy unavailable. Select and copy the referral link manually.", true);
+    }
+  });
+  $("shareRef").addEventListener("click", () => {
+    const link = me && me.referralLink;
+    if (!link) return;
+    const shareUrl = "https://t.me/share/url?url=" + encodeURIComponent(link) +
+      "&text=" + encodeURIComponent("Join CP Mining!");
+    if (tg) tg.openTelegramLink(shareUrl);
+    else window.open(shareUrl, "_blank");
+  });
+
+  document.querySelectorAll(".nav button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const map = {home:"home", mining:"mining", referral:"referral", mail:"mail", wallet:"wallet"};
+      showPanel(map[btn.dataset.panel] || "home");
+    });
+  });
+
+  loadData();
+})();
+</script>
+</body>
+</html>
