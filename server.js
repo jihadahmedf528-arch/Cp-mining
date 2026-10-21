@@ -63,37 +63,89 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
+
 function verifyTelegram(req, res, next) {
   try {
-    if (!BOT_TOKEN) return res.status(503).json({ error: "Bot token not configured" });
+    if (!BOT_TOKEN) {
+      return res.status(503).json({
+        error: "Bot token not configured"
+      });
+    }
+
     const initData = req.get("x-telegram-init-data");
-    if (!initData) return res.status(401).json({ error: "Telegram data required" });
+
+    if (!initData) {
+      return res.status(401).json({
+        error: "Telegram data required"
+      });
+    }
+
     const params = new URLSearchParams(initData);
     const hash = params.get("hash");
     const authDate = Number(params.get("auth_date"));
-    if (!hash || !authDate || Math.abs(Date.now() / 1000 - authDate) > 86400) {
-      return res.status(401).json({ error: "Invalid or expired session" });
+
+    if (
+      !hash ||
+      !/^[a-f0-9]{64}$/i.test(hash) ||
+      !Number.isFinite(authDate) ||
+      authDate <= 0 ||
+      Math.abs(Date.now() / 1000 - authDate) > 86400
+    ) {
+      return res.status(401).json({
+        error: "Invalid or expired session"
+      });
     }
+
     params.delete("hash");
     params.delete("signature");
-    const dataCheckString = [...params.entries()].sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}=${value}`).join("\n");
-    const secretKey = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
-    const calculatedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest();
+
+    const dataCheckString = [...params.entries()]
+      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
+
+    const secretKey = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(BOT_TOKEN)
+      .digest();
+
+    const calculatedHash = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest();
+
     const suppliedHash = Buffer.from(hash, "hex");
-    if (suppliedHash.length !== calculatedHash.length ||
-        !crypto.timingSafeEqual(suppliedHash, calculatedHash)) {
-      return res.status(401).json({ error: "Telegram verification failed" });
+
+    if (
+      suppliedHash.length !== calculatedHash.length ||
+      !crypto.timingSafeEqual(suppliedHash, calculatedHash)
+    ) {
+      console.warn("Telegram verification failed: hash mismatch");
+      return res.status(401).json({
+        error: "Telegram verification failed"
+      });
     }
+
     const user = JSON.parse(params.get("user") || "null");
-    if (!user || !user.id) return res.status(401).json({ error: "Telegram user missing" });
+
+    if (!user || !user.id) {
+      return res.status(401).json({
+        error: "Telegram user missing"
+      });
+    }
+
     req.tgUser = user;
     req.startParam = params.get("start_param") || "";
+
     next();
-  } catch {
-    res.status(401).json({ error: "Invalid Telegram session" });
+  } catch (err) {
+    console.error("Telegram verification error:", err.message);
+    return res.status(401).json({
+      error: "Invalid Telegram session"
+    });
   }
 }
+
 async function syncMining(uid, settings) {
   const ref = db.ref(`users/${uid}`);
   const snap = await ref.once("value");
