@@ -1,0 +1,376 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#05070b">
+<title>CP Mining Admin</title>
+<style>
+:root{--bg:#07090d;--panel:#11171e;--line:#26342f;--green:#38f5b0;--muted:#9aa9a5;--red:#ff7777}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#f4f7f6;font-family:Arial,sans-serif;padding:18px 14px 40px}
+main{max-width:760px;margin:auto}
+h1{font-size:24px;margin:0}
+h2{font-size:16px;margin:0 0 16px}
+p{color:var(--muted);font-size:13px;line-height:1.5}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0 22px}
+.logo{color:var(--green);font-size:11px;letter-spacing:2px;margin-bottom:7px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:17px;margin-bottom:14px}
+label{display:block;font-size:12px;color:#bac8c3;margin:13px 0 6px}
+input,textarea,select{width:100%;padding:12px;border:1px solid #34423f;border-radius:10px;background:#080d12;color:white;font:inherit;font-size:14px;outline:none}
+input:focus,textarea:focus{border-color:var(--green)}
+textarea{min-height:90px;resize:vertical}
+button{border:0;border-radius:10px;padding:12px 14px;font-weight:bold;font-size:13px;cursor:pointer}
+.primary{background:var(--green);color:#03130d;width:100%;margin-top:14px}
+.secondary{background:#1b2925;color:var(--green);border:1px solid #315246}
+.danger{background:#351a20;color:#ffaaaa}
+.row{display:flex;align-items:center;gap:10px}
+.row>*{flex:1;min-width:0}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#0b1116;border:1px solid var(--line);padding:13px;border-radius:12px}
+.stat small{color:var(--muted);font-size:11px}
+.stat strong{display:block;font-size:23px;margin-top:8px;color:var(--green);overflow-wrap:anywhere}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #25302d}
+.toggle:last-child{border:0}
+.toggle label{margin:0;font-size:14px}
+.toggle input{width:20px;height:20px;accent-color:var(--green)}
+.msg{font-size:12px;line-height:1.5;color:var(--green);white-space:pre-wrap;margin-top:10px}
+.error{color:var(--red)}
+.hidden{display:none!important}
+.user-list{max-height:260px;overflow:auto}
+.user{padding:10px 0;border-bottom:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}
+.top-actions{display:flex;gap:8px;align-items:center}
+.top-actions button{white-space:nowrap}
+.hint{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <div class="logo">CONTROL CENTER</div>
+    <h1>CP Mining Admin</h1>
+    <p>Manage mining, referrals, ads and notices.</p>
+  </div>
+  <div class="top-actions">
+    <button class="secondary" id="reload">Refresh</button>
+  </div>
+</header>
+
+<section class="card" id="loginCard">
+  <h2>Admin Authentication</h2>
+  <p>Enter the ADMIN_KEY configured in Render Environment Variables.</p>
+  <label for="adminKey">Admin key</label>
+  <input id="adminKey" type="password" autocomplete="current-password" placeholder="Enter admin key">
+  <button class="primary" id="connect">Connect to Admin API</button>
+  <div class="msg" id="loginMsg"></div>
+</section>
+
+<div id="dashboard" class="hidden">
+  <section class="card">
+    <h2>Overview</h2>
+    <div class="stats">
+      <div class="stat"><small>Total registered users</small><strong id="totalUsers">—</strong></div>
+      <div class="stat"><small>Total user CP</small><strong id="totalCP">—</strong></div>
+    </div>
+    <button class="secondary" id="refreshStats" style="width:100%;margin-top:12px">Refresh statistics</button>
+    <div class="msg" id="statsMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>General Settings</h2>
+    <label for="appName">App name</label>
+    <input id="appName" maxlength="50" value="CP Mining">
+
+    <div class="row">
+      <div>
+        <label for="dailyMiningCP">CP earned per 24 hours</label>
+        <input id="dailyMiningCP" type="number" min="0" step="0.01" value="100">
+      </div>
+      <div>
+        <label for="referralCP">CP per eligible referral</label>
+        <input id="referralCP" type="number" min="0" step="0.01" value="10">
+      </div>
+    </div>
+
+    <div class="toggle">
+      <label for="miningEnabled">Mining enabled</label>
+      <input id="miningEnabled" type="checkbox" checked>
+    </div>
+    <div class="toggle">
+      <label for="referralsEnabled">Referral system enabled</label>
+      <input id="referralsEnabled" type="checkbox" checked>
+    </div>
+    <button class="primary" id="saveSettings">Save general settings</button>
+    <div class="msg" id="settingsMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Monetag / Ads Settings</h2>
+    <p>These fields configure the app's ad settings. They do not by themselves verify a completed ad view or pay a reward.</p>
+    <label for="adRewardCP">Configured CP per ad</label>
+    <input id="adRewardCP" type="number" min="0" step="0.01" value="1">
+    <label for="adsPerDay">Maximum ad rewards per user per day</label>
+    <input id="adsPerDay" type="number" min="0" step="1" value="20">
+    <div class="toggle">
+      <label for="adsEnabled">Ads feature enabled</label>
+      <input id="adsEnabled" type="checkbox" checked>
+    </div>
+    <div class="hint">Reward payments remain disabled until genuine Monetag rewarded-ad verification and server-side duplicate protection are implemented.</div>
+    <button class="primary" id="saveAds">Save ad settings</button>
+    <div class="msg" id="adsMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Timed Notice</h2>
+    <label for="noticeTitle">Notice title</label>
+    <input id="noticeTitle" maxlength="100" placeholder="Welcome to CP Mining">
+    <label for="noticeMessage">Notice message</label>
+    <textarea id="noticeMessage" maxlength="3000" placeholder="Write your announcement here"></textarea>
+    <label for="noticeDuration">How long should it remain visible?</label>
+    <select id="noticeDuration">
+      <option value="0">No expiry</option>
+      <option value="3600000">1 hour</option>
+      <option value="21600000">6 hours</option>
+      <option value="86400000">24 hours</option>
+      <option value="259200000">3 days</option>
+      <option value="604800000">7 days</option>
+    </select>
+    <button class="primary" id="saveNotice">Publish notice</button>
+    <div class="msg" id="noticeMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Telegram Broadcast</h2>
+    <p>Sends a plain text message to registered user IDs. Telegram users must have started the bot or otherwise made the bot able to message them. Delivery may fail for blocked bots or unavailable accounts.</p>
+    <label for="broadcastMessage">Message to send</label>
+    <textarea id="broadcastMessage" maxlength="4000" placeholder="Write your message"></textarea>
+    <button class="primary" id="sendBroadcast">Send broadcast</button>
+    <div class="msg" id="broadcastMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Registered Users</h2>
+    <p>Read-only list of user IDs and current balances.</p>
+    <button class="secondary" id="loadUsers" style="width:100%">Load user list</button>
+    <div class="msg" id="usersMsg"></div>
+    <div id="userList" class="user-list"></div>
+  </section>
+
+  <section class="card">
+    <button class="danger" id="disconnect" style="width:100%">Disconnect Admin Panel</button>
+  </section>
+</div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let key = "";
+
+  function show(id, text, error = false) {
+    const el = $(id);
+    el.textContent = text || "";
+    el.classList.toggle("error", error);
+  }
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": key,
+        ...(options.headers || {})
+      }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+
+  function settingsPayload() {
+    return {
+      appName: $("appName").value.trim() || "CP Mining",
+      dailyMiningCP: Number($("dailyMiningCP").value),
+      referralCP: Number($("referralCP").value),
+      adRewardCP: Number($("adRewardCP").value),
+      adsPerDay: Number($("adsPerDay").value),
+      miningEnabled: $("miningEnabled").checked,
+      adsEnabled: $("adsEnabled").checked,
+      referralsEnabled: $("referralsEnabled").checked
+    };
+  }
+
+  function validateSettings(s) {
+    for (const field of ["dailyMiningCP", "referralCP", "adRewardCP", "adsPerDay"]) {
+      if (!Number.isFinite(s[field]) || s[field] < 0) {
+        throw new Error(`Enter a valid non-negative value for ${field}.`);
+      }
+    }
+  }
+
+  async function loadSettings() {
+    const s = await api("/api/admin/settings");
+    $("appName").value = s.appName || "CP Mining";
+    $("dailyMiningCP").value = s.dailyMiningCP ?? 100;
+    $("referralCP").value = s.referralCP ?? 10;
+    $("adRewardCP").value = s.adRewardCP ?? 1;
+    $("adsPerDay").value = s.adsPerDay ?? 20;
+    $("miningEnabled").checked = s.miningEnabled !== false;
+    $("adsEnabled").checked = s.adsEnabled !== false;
+    $("referralsEnabled").checked = s.referralsEnabled !== false;
+
+    const n = s.notice || {};
+    $("noticeTitle").value = n.title || "";
+    $("noticeMessage").value = n.message || "";
+    if (n.expiresAt) {
+      const remaining = Number(n.expiresAt) - Date.now();
+      const valid = ["3600000","21600000","86400000","259200000","604800000"];
+      const durations = [3600000,21600000,86400000,259200000,604800000];
+      const nearest = durations.reduce((a,b) =>
+        Math.abs(b - remaining) < Math.abs(a - remaining) ? b : a);
+      $("noticeDuration").value = remaining > 0 && valid.includes(String(nearest))
+        ? String(nearest) : "0";
+    } else {
+      $("noticeDuration").value = "0";
+    }
+  }
+
+  async function loadStats() {
+    try {
+      const s = await api("/api/admin/stats");
+      $("totalUsers").textContent = Number(s.totalUsers || 0).toLocaleString();
+      $("totalCP").textContent = Number(s.totalCP || 0).toLocaleString(undefined,{maximumFractionDigits:4});
+      show("statsMsg", "Statistics updated.");
+    } catch (e) {
+      show("statsMsg", e.message, true);
+    }
+  }
+
+  async function connect() {
+    key = $("adminKey").value.trim();
+    if (!key) return show("loginMsg", "Enter your Admin key first.", true);
+    try {
+      await loadSettings();
+      $("loginCard").classList.add("hidden");
+      $("dashboard").classList.remove("hidden");
+      show("loginMsg", "");
+      await loadStats();
+    } catch (e) {
+      key = "";
+      show("loginMsg", e.message, true);
+    }
+  }
+
+  $("connect").addEventListener("click", connect);
+  $("adminKey").addEventListener("keydown", e => {
+    if (e.key === "Enter") connect();
+  });
+
+  $("reload").addEventListener("click", async () => {
+    if (!key) return show("loginMsg", "Connect with your Admin key first.", true);
+    try {
+      await loadSettings();
+      await loadStats();
+      show("settingsMsg", "Settings reloaded.");
+    } catch (e) {
+      show("settingsMsg", e.message, true);
+    }
+  });
+
+  async function saveSettings(section) {
+    try {
+      const s = settingsPayload();
+      validateSettings(s);
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: JSON.stringify(s)
+      });
+      show(section, "Saved successfully.");
+    } catch (e) {
+      show(section, e.message, true);
+    }
+  }
+
+  $("saveSettings").addEventListener("click", () => saveSettings("settingsMsg"));
+  $("saveAds").addEventListener("click", () => saveSettings("adsMsg"));
+
+  $("saveNotice").addEventListener("click", async () => {
+    try {
+      const current = await api("/api/admin/settings");
+      const duration = Number($("noticeDuration").value);
+      const notice = {
+        title: $("noticeTitle").value.trim(),
+        message: $("noticeMessage").value.trim(),
+        expiresAt: duration ? Date.now() + duration : 0
+      };
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: JSON.stringify({ ...current, notice })
+      });
+      show("noticeMsg", "Notice saved.");
+    } catch (e) {
+      show("noticeMsg", e.message, true);
+    }
+  });
+
+  $("sendBroadcast").addEventListener("click", async () => {
+    const message = $("broadcastMessage").value.trim();
+    if (!message) return show("broadcastMsg", "Write a message first.", true);
+    if (!confirm("Send this message to all registered users?")) return;
+    $("sendBroadcast").disabled = true;
+    show("broadcastMsg", "Sending messages. Please wait…");
+    try {
+      const result = await api("/api/admin/broadcast", {
+        method: "POST",
+        body: JSON.stringify({ message })
+      });
+      show("broadcastMsg", `Finished.\nSent: ${result.sent}\nFailed: ${result.failed}`);
+    } catch (e) {
+      show("broadcastMsg", e.message, true);
+    } finally {
+      $("sendBroadcast").disabled = false;
+    }
+  });
+
+  $("loadUsers").addEventListener("click", async () => {
+    show("usersMsg", "Loading users…");
+    $("userList").replaceChildren();
+    try {
+      const users = await api("/api/admin/users");
+      const entries = Object.entries(users);
+      if (!entries.length) {
+        show("usersMsg", "No registered users yet.");
+        return;
+      }
+      show("usersMsg", `Loaded ${entries.length} users.`);
+      const fragment = document.createDocumentFragment();
+      for (const [id, user] of entries) {
+        const item = document.createElement("div");
+        item.className = "user";
+        const name = user.firstName || user.username || "Telegram user";
+        item.textContent = `${name} · ID: ${id} · CP: ${Number(user.balance || 0).toFixed(4)} · Referrals: ${Number(user.referralCount || 0)}`;
+        fragment.appendChild(item);
+      }
+      $("userList").appendChild(fragment);
+    } catch (e) {
+      show("usersMsg", e.message, true);
+    }
+  });
+
+  $("refreshStats").addEventListener("click", loadStats);
+
+  $("disconnect").addEventListener("click", () => {
+    key = "";
+    $("adminKey").value = "";
+    $("dashboard").classList.add("hidden");
+    $("loginCard").classList.remove("hidden");
+    $("userList").replaceChildren();
+    show("loginMsg", "Disconnected.");
+  });
+})();
+</script>
+</body>
+</html>
+  
