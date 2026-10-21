@@ -8,6 +8,7 @@ app.use(express.json({ limit: "1mb" }));
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_KEY = process.env.ADMIN_KEY;
+const MONETAG_POSTBACK_SECRET = process.env.MONETAG_POSTBACK_SECRET || "";
 const DATABASE_URL = process.env.FIREBASE_DATABASE_URL;
 const SERVICE_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
@@ -26,13 +27,15 @@ try {
 }
 
 app.use(express.static("public"));
- 
+
 const defaults = {
   appName: "CP Mining",
   dailyMiningCP: 100,
   referralCP: 10,
   adRewardCP: 1,
   adsPerDay: 20,
+  monetagZoneId1: "",
+  monetagZoneId2: "",
   miningEnabled: true,
   adsEnabled: true,
   referralsEnabled: true,
@@ -119,7 +122,9 @@ app.get("/api/bootstrap", requireDb, async (req, res) => {
     const s = await getSettings();
     res.json({
       appName: s.appName, dailyMiningCP: s.dailyMiningCP, referralCP: s.referralCP,
-      adRewardCP: s.adRewardCP, adsPerDay: s.adsPerDay, miningEnabled: s.miningEnabled,
+      adRewardCP: s.adRewardCP, adsPerDay: s.adsPerDay,
+      monetagZoneId1: String(s.monetagZoneId1 || ""), monetagZoneId2: String(s.monetagZoneId2 || ""),
+      miningEnabled: s.miningEnabled,
       adsEnabled: s.adsEnabled, referralsEnabled: s.referralsEnabled,
       withdrawalEnabled: s.withdrawalEnabled !== false,
       minWithdrawalCP: Number(s.minWithdrawalCP ?? defaults.minWithdrawalCP),
@@ -194,9 +199,122 @@ app.post("/api/mining/start", requireDb, verifyTelegram, async (req, res) => {
   } catch (e) { res.status(500).json({ error: "Could not start mining" }); }
 });
 
-// Ad rewards intentionally remain disabled until genuine Monetag verification is integrated.
-app.post("/api/ads/reward", requireDb, verifyTelegram, (req, res) => {
-  res.status(501).json({ error: "Monetag reward verification is not configured yet" });
+// Monetag rewarded ads: client callbacks never credit CP. Only a valid server postback can do that.
+function utcDay(ts = Date.now()) { return new Date(ts).toISOString().slice(0, 10); }
+function cleanZone(value) { return String(value || "").trim().replace(/[^0-9]/g, "").slice(0, 30); }
+
+app.get("/api/ads/state", requireDb, verifyTelegram, async (req, res) => {
+  try {
+    const uid = String(req.tgUser.id), settings = await getSettings();
+    const userSnap = await db.ref(`users/${uid}`).once("value");
+    if (!userSnap.exists()) return res.status(404).json({ error: "Open the main app first" });
+    const user = userSnap.val() || {}, day = utcDay();
+    const completed = Number((user.adDailyUsage || {})[day] || 0);
+    const zones = [cleanZone(settings.monetagZoneId1), cleanZone(settings.monetagZoneId2)].filter(Boolean);
+    res.json({ enabled: settings.adsEnabled !== false, configured: zones.length > 0 && Boolean(MONETAG_POSTBACK_SECRET),
+      zones, rewardCP: Number(settings.adRewardCP || 0), dailyLimit: Number(settings.adsPerDay || 0),
+      completed, remaining: Math.max(0, Number(settings.adsPerDay || 0) - completed),
+      balance: Number(user.balance || 0), pending: Boolean(user.pendingAdSession) });
+  } catch (e) { res.status(500).json({ error: "Could not load ad status" }); }
+});
+
+app.post("/api/ads/start", requireDb, verifyTelegram, async (req, res) => {
+  try {
+    const uid = String(req.tgUser.id), settings = await getSettings();
+    if (settings.adsEnabled === false) return res.status(403).json({ error: "Ads are disabled" });
+    if (!MONETAG_POSTBACK_SECRET) return res.status(503).json({ error: "Admin must configure MONETAG_POSTBACK_SECRET in Render" });
+    const zones = [cleanZone(settings.monetagZoneId1), cleanZone(settings.monetagZoneId2)].filter(Boolean);
+    if (!zones.length) return res.status(503).json({ error: "Admin has not configured a Monetag Zone ID" });
+    const day = utcDay(), now = Date.now(), ymid = `cp_${crypto.randomUUID().replace(/-/g, "")}`;
+    const userBefore = (await db.ref(`users/${uid}`).once("value")).val();
+    if (userBefore && userBefore.pendingAdSession) {
+      const pendingRef = db.ref(`adSessions/${String(userBefore.pendingAdSession)}`);
+      const pending = (await pendingRef.once("value")).val();
+      if (pending && pending.status === "pending" && now - Number(pending.createdAt || now) < 10 * 60 * 1000) {
+        return res.status(409).json({ error: "An ad is already pending. Finish it or wait up to 10 minutes before retrying" });
+      }
+      if (pending && pending.status === "pending") await pendingRef.update({ status: "expired", finishedAt: now });
+      await db.ref(`users/${uid}`).transaction(user => { if (user && user.pendingAdSession === userBefore.pendingAdSession) { delete user.pendingAdSession; return user; } return; });
+    }
+    const sessionRef = db.ref(`adSessions/${ymid}`);
+    await sessionRef.set({ ymid, uid, day, zoneId: zones[(Number((await db.ref(`users/${uid}/adDailyUsage/${day}`).once("value")).val() || 0)) % zones.length], status: "pending", createdAt: now });
+    let problem = "";
+    const userRef = db.ref(`users/${uid}`);
+    const result = await userRef.transaction(user => {
+      if (!user) { problem = "Open the main app first"; return; }
+      const completed = Number((user.adDailyUsage || {})[day] || 0);
+      if (completed >= Number(settings.adsPerDay || 0)) { problem = "You have completed all ads for today"; return; }
+      if (user.pendingAdSession) { problem = "An ad is already pending. Finish it or wait up to 10 minutes before retrying"; return; }
+      user.pendingAdSession = ymid;
+      return user;
+    }, undefined, false);
+    if (!result.committed) {
+      await sessionRef.update({ status: "cancelled", finishedAt: Date.now() });
+      return res.status(409).json({ error: problem || "Could not start ad session" });
+    }
+    const session = (await sessionRef.once("value")).val();
+    res.json({ success: true, ymid, zoneId: session.zoneId, rewardCP: Number(settings.adRewardCP || 0), dailyLimit: Number(settings.adsPerDay || 0), completed: Number(((result.snapshot.val().adDailyUsage || {})[day]) || 0) });
+  } catch (e) { console.error("ad start error:", e.message); res.status(500).json({ error: "Could not start ad" }); }
+});
+
+app.get("/api/ads/status", requireDb, verifyTelegram, async (req, res) => {
+  try {
+    const uid = String(req.tgUser.id), ymid = String(req.query.ymid || "");
+    if (!/^cp_[a-f0-9]{32}$/.test(ymid)) return res.status(400).json({ error: "Invalid ad session" });
+    const session = (await db.ref(`adSessions/${ymid}`).once("value")).val();
+    if (!session || session.uid !== uid) return res.status(404).json({ error: "Ad session not found" });
+    const user = (await db.ref(`users/${uid}`).once("value")).val() || {}, settings = await getSettings();
+    const completed = Number(((user.adDailyUsage || {})[utcDay()]) || 0);
+    res.json({ status: session.status, balance: Number(user.balance || 0), completed, remaining: Math.max(0, Number(settings.adsPerDay || 0) - completed), rewardCP: Number(settings.adRewardCP || 0) });
+  } catch (e) { res.status(500).json({ error: "Could not check ad status" }); }
+});
+
+app.post("/api/ads/cancel", requireDb, verifyTelegram, async (req, res) => {
+  try {
+    const uid = String(req.tgUser.id), ymid = String(req.body.ymid || "");
+    if (!/^cp_[a-f0-9]{32}$/.test(ymid)) return res.status(400).json({ error: "Invalid ad session" });
+    const sessionRef = db.ref(`adSessions/${ymid}`), session = (await sessionRef.once("value")).val();
+    if (!session || session.uid !== uid) return res.status(404).json({ error: "Ad session not found" });
+    if (session.status === "pending") {
+      await sessionRef.transaction(s => { if (s && s.status === "pending") { s.status = "not_valued"; s.finishedAt = Date.now(); return s; } return; });
+      await db.ref(`users/${uid}`).transaction(user => { if (user && user.pendingAdSession === ymid) { delete user.pendingAdSession; return user; } return; });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: "Could not close ad session" }); }
+});
+
+// Monetag calls this endpoint directly. Set MONETAG_POSTBACK_SECRET in Render and the matching
+// secret in Monetag's postback URL. Duplicate ymid values can never grant CP twice.
+app.get("/postback", requireDb, async (req, res) => {
+  try {
+    if (!MONETAG_POSTBACK_SECRET || !req.query.secret || req.query.secret !== MONETAG_POSTBACK_SECRET) return res.sendStatus(403);
+    const ymid = String(req.query.ymid || ""), eventType = String(req.query.event_type || ""), rewardType = String(req.query.reward_event_type || ""), zoneId = cleanZone(req.query.zone_id), telegramId = String(req.query.telegram_id || "");
+    if (!/^cp_[a-f0-9]{32}$/.test(ymid)) return res.sendStatus(200);
+    const sessionRef = db.ref(`adSessions/${ymid}`), snap = await sessionRef.once("value"), session = snap.val();
+    if (!session || session.status !== "pending") return res.sendStatus(200);
+    if (eventType !== "impression" || rewardType !== "valued" || zoneId !== cleanZone(session.zoneId)) return res.sendStatus(200);
+    if (telegramId && telegramId !== String(session.uid)) return res.sendStatus(200);
+    const settings = await getSettings(), uid = String(session.uid), userRef = db.ref(`users/${uid}`);
+    let problem = "";
+    const credited = await userRef.transaction(user => {
+      if (!user) { problem = "user missing"; return; }
+      user.rewardedAdIds = user.rewardedAdIds || {};
+      if (user.rewardedAdIds[ymid]) { problem = "duplicate"; return; }
+      const usage = user.adDailyUsage || {}, count = Number(usage[session.day] || 0);
+      if (count >= Number(settings.adsPerDay || 0)) { problem = "daily cap"; return; }
+      if (user.pendingAdSession !== ymid) { problem = "session mismatch"; return; }
+      user.balance = Number(user.balance || 0) + Number(settings.adRewardCP || 0);
+      usage[session.day] = count + 1;
+      user.adDailyUsage = usage;
+      user.rewardedAdIds[ymid] = Date.now();
+      delete user.pendingAdSession;
+      return user;
+    }, undefined, false);
+    if (credited.committed) {
+      await sessionRef.update({ status: "rewarded", rewardedAt: Date.now(), creditedCP: Number(settings.adRewardCP || 0) });
+    }
+    res.sendStatus(200);
+  } catch (e) { console.error("Monetag postback error:", e.message); res.sendStatus(500); }
 });
 
 // Withdrawal request is stored under the user's record in the same Firebase transaction
@@ -318,7 +436,7 @@ app.get("/api/admin/settings", requireDb, requireAdmin, async (req, res) => {
 });
 app.post("/api/admin/settings", requireDb, requireAdmin, async (req, res) => {
   const allowed = [
-    "appName", "dailyMiningCP", "referralCP", "adRewardCP", "adsPerDay",
+    "appName", "dailyMiningCP", "referralCP", "adRewardCP", "adsPerDay", "monetagZoneId1", "monetagZoneId2",
     "miningEnabled", "adsEnabled", "referralsEnabled", "notice",
     "withdrawalEnabled", "minWithdrawalCP", "cpPerUSD"
   ];
@@ -331,6 +449,9 @@ app.post("/api/admin/settings", requireDb, requireAdmin, async (req, res) => {
     }
     next[key] = Number(next[key]);
   }
+  next.monetagZoneId1 = cleanZone(next.monetagZoneId1);
+  next.monetagZoneId2 = cleanZone(next.monetagZoneId2);
+  if (next.adsPerDay < 0 || !Number.isInteger(next.adsPerDay)) return res.status(400).json({ error: "Daily ad limit must be a whole number 0 or greater" });
   if (next.minWithdrawalCP < 1) return res.status(400).json({ error: "Minimum withdrawal CP must be at least 1" });
   if (next.cpPerUSD <= 0) return res.status(400).json({ error: "CP per USD must be greater than 0" });
   await db.ref("settings").set(next);
